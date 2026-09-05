@@ -166,5 +166,8 @@
       "release-it"
     ],
     "version": "0.63.0"
+  },
+  "dependencies": {
+    "react-native-webview": "^14.0.1"
   }
 }
