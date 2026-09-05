@@ -42,19 +42,33 @@
   },
   "keywords": [
     "react-native",
+    "react-native-globe",
     "ios",
-    "android"
+    "android",
+    "globe",
+    "orbitly",
+    "3d-globe",
+    "interactive-globe",
+    "threejs",
+    "maps",
+    "earth",
+    "drill-down",
+    "react-native-globe",
+    "data-visualization"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/example/react-native-orbitly.git"
+    "url": "https://github.com/muku534/react-native-orbitly"
   },
-  "author": "Tripookie User <test@example.com> (https://example.com)",
+  "author": {
+    "name": "Mukesh Prajapati",
+    "url": "https://github.com/muku534"
+  },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/example/react-native-orbitly/issues"
+    "url": "https://github.com/muku534/react-native-orbitly/issues"
   },
-  "homepage": "https://github.com/example/react-native-orbitly#readme",
+  "homepage": "https://github.com/muku534/react-native-orbitly#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },

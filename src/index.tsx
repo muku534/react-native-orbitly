@@ -1,6 +1,8 @@
-import React, { useRef, useImperativeHandle, forwardRef } from 'react';
-import { View, StyleSheet, Platform, StyleProp, ViewStyle } from 'react-native';
-import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import { useRef, useImperativeHandle, forwardRef } from 'react';
+import { View, StyleSheet } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { WebView } from 'react-native-webview';
+import type { WebViewMessageEvent } from 'react-native-webview';
 import { GLOBE_HTML } from './globeHtml';
 
 export interface OrbitlyGlobeProps {
@@ -59,6 +61,7 @@ export const OrbitlyGlobe = forwardRef<OrbitlyGlobeRef, OrbitlyGlobeProps>(({
 
   return (
     <View style={[styles.container, { backgroundColor }, style]}>
+      {/* @ts-ignore */}
       <WebView
         ref={webviewRef}
         originWhitelist={['*']}
@@ -68,7 +71,7 @@ export const OrbitlyGlobe = forwardRef<OrbitlyGlobeRef, OrbitlyGlobeProps>(({
         allowsInlineMediaPlayback={true}
         allowsBackForwardNavigationGestures={false}
         onMessage={handleWebViewMessage}
-        onError={(e) => console.log('OrbitlyGlobe WebView error:', e.nativeEvent)}
+        onError={(e: any) => console.log('OrbitlyGlobe WebView error:', e.nativeEvent)}
         style={styles.webview}
       />
     </View>
