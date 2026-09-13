@@ -49,9 +49,12 @@ export const GLOBE_HTML = `<!DOCTYPE html>
         let stateFeatures = [];
         let cityFeatures = [];
         let activeCountryId = null;
+        let activeCountryIso3 = null;
+        let activeCountryIso2 = null;
         let activeStateId = null;
         let activeCityId = null;
         let polygonsReady = false;
+        let indiaTopoData = null;
         
         const highlightedIds = new Set();
         let isUserInteracting = false;
@@ -122,7 +125,19 @@ export const GLOBE_HTML = `<!DOCTYPE html>
             "834": "TZA", "840": "USA", "854": "BFA", "858": "URY", "860": "UZB", "862": "VEN",
             "882": "WSM", "887": "YEM", "894": "ZMB"
         };
-        
+
+        function mapIndiaState(name) {
+            let clean = (name || '').toLowerCase().replace(/[^a-z]/g, '');
+            if (clean.includes('andaman')) return 'andamannicobar';
+            if (clean.includes('dadra')) return 'dadranagarhaveli';
+            if (clean.includes('daman') || clean.includes('diu')) return 'gujarat';
+            if (clean.includes('orissa')) return 'odisha';
+            if (clean.includes('uttaranchal')) return 'uttarakhand';
+            if (clean.includes('pondicherry')) return 'puducherry';
+            if (clean.includes('jammu')) return 'jammukashmir';
+            return clean;
+        }
+
         const globe = Globe()
             (document.getElementById('globeViz'))
             .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-day.jpg')
@@ -131,16 +146,37 @@ export const GLOBE_HTML = `<!DOCTYPE html>
             .showAtmosphere(true)
             .atmosphereColor('#6ec6ff')
             .atmosphereAltitude(0.25)
-            .polygonSideColor(() => 'rgba(0,100,0,0.15)')
-            .polygonStrokeColor(() => '#111')
+            .polygonSideColor(d => {
+                if (d.isCity) return 'rgba(0,0,0,0)'; // Transparent side: eliminates fan streak rays for cities!
+                if (d.isState && activeStateId === d.id && cityFeatures.length > 0) return 'rgba(0,0,0,0)'; // Eliminates muddy cliff side walls when cities are visible!
+                return 'rgba(0,100,0,0.15)'; // Exact original for countries and states
+            })
+            .polygonStrokeColor(d => {
+                if (d.isCity) return '#ffffff'; // Clean white border for city polygons
+                if (d.isState && activeStateId === d.id && cityFeatures.length > 0) return 'rgba(0,0,0,0)'; // Hide outer stroke of active state
+                return '#111'; // Exact original
+            })
             .polygonAltitude(d => {
-                if (d.isState) return activeStateId === d.id ? 0.04 : 0.03;
-                return (activeCountryId === d.id && stateFeatures.length > 0) ? 0.01 : (highlightedIds.has(d.id) ? 0.02 : 0.01);
+                if (d.isCity) return activeCityId === d.id ? 0.038 : 0.034;
+                if (d.isState) {
+                    if (activeStateId === d.id && cityFeatures.length > 0) return 0.001; // Sit flat so no extruded cliff along coast
+                    return activeStateId === d.id ? 0.04 : 0.03; // Exact original
+                }
+                return (activeCountryId === d.id && stateFeatures.length > 0) ? 0.01 : (highlightedIds.has(d.id) ? 0.02 : 0.01); // Exact original
             })
             .polygonCapColor(d => {
-                if (d.isState) return activeStateId === d.id ? 'orange' : 'yellow';
-                if (activeCountryId === d.id && stateFeatures.length > 0) return 'rgba(144, 238, 144, 0.2)';
-                return highlightedIds.has(d.id) ? 'red' : 'lightgreen';
+                if (d.isCity) {
+                    const isSurat = (d.properties.name || '').toLowerCase().includes('surat');
+                    if (activeCityId === d.id) return '#ff1744'; // Active tapped city
+                    if (isSurat) return '#ff5252'; // Highlight Surat
+                    return '#00b4d8'; // Clean ocean cyan city polygon
+                }
+                if (d.isState) {
+                    if (activeStateId === d.id && cityFeatures.length > 0) return 'rgba(0, 0, 0, 0)'; // Hide state underlayer so only cities show cleanly
+                    return activeStateId === d.id ? 'orange' : 'yellow';
+                }
+                if (activeCountryId === d.id && stateFeatures.length > 0) return 'rgba(144, 238, 144, 0.2)'; // Exact original
+                return highlightedIds.has(d.id) ? 'red' : 'lightgreen'; // Exact original
             })
             .polygonLabel(d => \`
                 <div style="background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-family: sans-serif;">
@@ -149,8 +185,12 @@ export const GLOBE_HTML = `<!DOCTYPE html>
             \`)
             .onPolygonHover(hoverD => {
                 globe.polygonAltitude(d => {
-                    if (d.isState) return activeStateId === d.id ? 0.04 : (d === hoverD ? 0.035 : 0.03);
-                    return (activeCountryId === d.id && stateFeatures.length > 0) ? 0.01 : (d === hoverD ? 0.02 : 0.01);
+                    if (d.isCity) return activeCityId === d.id ? 0.04 : (d === hoverD ? 0.038 : 0.034);
+                    if (d.isState) {
+                        if (activeStateId === d.id && cityFeatures.length > 0) return 0.001;
+                        return activeStateId === d.id ? 0.04 : (d === hoverD ? 0.035 : 0.03);
+                    }
+                    return (activeCountryId === d.id && stateFeatures.length > 0) ? 0.01 : (d === hoverD ? 0.015 : 0.01);
                 });
             });
 
@@ -158,92 +198,230 @@ export const GLOBE_HTML = `<!DOCTYPE html>
         globe.controls().autoRotate = true;
         globe.controls().autoRotateSpeed = 0.5;
 
-        // Fetch Global Country Boundaries
-        fetch('https://unpkg.com/world-atlas/countries-110m.json')
-            .then(res => res.json())
-            .then(topoData => {
-                countryFeatures = topojson.feature(topoData, topoData.objects.countries).features.map(f => ({
-                    ...f,
-                    isState: false,
-                    properties: f.properties || { name: f.id }
-                }));
-                globe.polygonsData(countryFeatures);
-                loader.style.display = 'none';
+        // Fetch Global Country Boundaries & Official India Boundaries in parallel
+        Promise.all([
+            fetch('https://unpkg.com/world-atlas/countries-110m.json').then(res => res.json()),
+            fetch('https://raw.githubusercontent.com/udit-001/india-maps-data/master/topojson/india.json').then(res => res.json()).catch(e => null)
+        ]).then(([topoData, indiaTopo]) => {
+            countryFeatures = topojson.feature(topoData, topoData.objects.countries).features.map(f => ({
+                ...f,
+                isState: false,
+                properties: f.properties || { name: f.id }
+            }));
 
-                // Handle Label Clicks (Cities)
-                globe.onLabelClick(label => {
-                    activeCityId = label.name;
-                    
-                    // Zoom closer to city
-                    globe.pointOfView({ lat: label.lat, lng: label.lng, altitude: 0.15 }, 800);
+            if (indiaTopo) {
+                indiaTopoData = indiaTopo;
+                try {
+                    const indiaCountryGeom = topojson.merge(indiaTopo, indiaTopo.objects.states.geometries);
+                    const indiaFeat = turf.rewind({
+                        type: 'Feature',
+                        id: '356',
+                        properties: { name: 'India' },
+                        geometry: indiaCountryGeom
+                    }, { reverse: true });
+
+                    // Cleanly clip overlapping border lines from neighboring countries in world-atlas
+                    const neighbors = ['586', '156', '050', '524', '064', '104'];
+                    neighbors.forEach(id => {
+                        const idx = countryFeatures.findIndex(x => x.id === id);
+                        if (idx !== -1) {
+                            try {
+                                const diff = turf.difference(countryFeatures[idx], indiaFeat);
+                                if (diff && diff.geometry) {
+                                    countryFeatures[idx] = {
+                                        ...diff,
+                                        id: countryFeatures[idx].id,
+                                        isState: false,
+                                        properties: countryFeatures[idx].properties
+                                    };
+                                    countryFeatures[idx] = turf.rewind(countryFeatures[idx], { reverse: true });
+                                }
+                            } catch (e) {}
+                        }
+                    });
+
+                    // Replace India country polygon with official Survey of India boundary
+                    const indIdx = countryFeatures.findIndex(x => x.id === '356');
+                    if (indIdx !== -1) {
+                        countryFeatures[indIdx] = {
+                            ...indiaFeat,
+                            id: '356',
+                            isState: false,
+                            properties: { ...(countryFeatures[indIdx].properties || {}), name: 'India' }
+                        };
+                    }
+                } catch (e) {
+                    console.log('Error upgrading India country boundary:', e);
+                }
+            }
+
+            globe.polygonsData(countryFeatures);
+            loader.style.display = 'none';
+
+            globe.onPolygonClick(polygon => {
+                if (polygon.isCity) {
+                    activeCityId = polygon.id;
+                    globe.polygonsData([...countryFeatures, ...stateFeatures, ...cityFeatures]); // refresh colors
 
                     if (window.ReactNativeWebView) {
                         window.ReactNativeWebView.postMessage(JSON.stringify({
                             type: 'district-clicked',
-                            district: label.name,
-                            id: label.name
+                            district: polygon.properties.name,
+                            city: polygon.properties.name,
+                            id: polygon.id
                         }));
                     }
-                });
+                    return;
+                }
 
-                globe.onPolygonClick(polygon => {
-                    if (polygon.isState) {
-                        activeStateId = polygon.id;
-                        activeCityId = null;
-                        
-                        // Mock Cities Dictionary
-                        const MOCK_CITIES = {
-                            "Maharashtra": [ { name: "Mumbai", lat: 19.0760, lng: 72.8777 }, { name: "Pune", lat: 18.5204, lng: 73.8567 }, { name: "Nagpur", lat: 21.1458, lng: 79.0882 } ],
-                            "NCT of Delhi": [ { name: "New Delhi", lat: 28.6139, lng: 77.2090 }, { name: "Okhla", lat: 28.512, lng: 77.258 }, { name: "Dwarka", lat: 28.5823, lng: 77.0500 } ],
-                            "Delhi": [ { name: "New Delhi", lat: 28.6139, lng: 77.2090 }, { name: "Okhla", lat: 28.512, lng: 77.258 }, { name: "Dwarka", lat: 28.5823, lng: 77.0500 } ],
-                            "Karnataka": [ { name: "Bengaluru", lat: 12.9716, lng: 77.5946 }, { name: "Mysuru", lat: 12.2958, lng: 76.6394 }, { name: "Mangaluru", lat: 12.9141, lng: 74.8560 } ]
-                        };
-                        const stateName = polygon.properties.name || polygon.properties.NAME_1;
-                        const cities = MOCK_CITIES[stateName] || [];
-                        
-                        // Configure Globe Labels for Cities
-                        globe.labelsData(cities)
-                             .labelLat(d => d.lat)
-                             .labelLng(d => d.lng)
-                             .labelText(d => d.name)
-                             .labelSize(0.6)
-                             .labelDotRadius(0.2)
-                             .labelColor(() => 'rgba(255, 255, 255, 0.95)')
-                             .labelAltitude(0.045)
-                             .labelResolution(3);
+                if (polygon.isState) {
+                    activeStateId = polygon.id;
+                    activeCityId = null;
+                    cityFeatures = []; // clear previous cities
+                    globe.polygonsData([...countryFeatures, ...stateFeatures]); // refresh colors
 
-                        globe.polygonsData([...countryFeatures, ...stateFeatures]); // refresh colors
-                        
-                        if (window.ReactNativeWebView) {
-                            window.ReactNativeWebView.postMessage(JSON.stringify({
-                                type: 'state-clicked',
-                                state: polygon.properties.name,
-                                id: polygon.id
-                            }));
-                        }
-                        return;
+                    // Auto zoom into clicked state
+                    globe.controls().autoRotate = false;
+                    try {
+                        const centroid = turf.centroid(polygon);
+                        const [lng, lat] = centroid.geometry.coordinates;
+                        const currentView = globe.pointOfView();
+                        const targetAlt = Math.max(0.3, Math.min(currentView.altitude - 0.7, 0.65));
+                        globe.pointOfView({ lat, lng, altitude: targetAlt }, 800);
+                    } catch (e) {
+                        const currentView = globe.pointOfView();
+                        globe.pointOfView({ ...currentView, altitude: Math.max(0.3, currentView.altitude - 0.7) }, 800);
                     }
 
-                    // It's a country
-                    globe.controls().autoRotate = false; // Pause rotation on click
-                    const currentView = globe.pointOfView();
-                    globe.pointOfView({ ...currentView, altitude: Math.max(0.4, currentView.altitude - 1.2) }, 800);
-                    
-                    if (activeCountryId !== polygon.id) {
-                        activeCountryId = polygon.id;
-                        stateFeatures = []; // clear previous states
-                        globe.polygonsData([...countryFeatures]); // reset
-                        activeStateId = null;
+                    if (window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'state-clicked',
+                            state: polygon.properties.name,
+                            id: polygon.id
+                        }));
+                    }
 
-                        const iso3 = ISO_NUMERIC_TO_ALPHA3[polygon.id];
-                        const iso2 = ISO_NUMERIC_TO_ALPHA2[polygon.id];
-                        if (iso3 && iso2) {
-                            let fetchUrl = \`https://code.highcharts.com/mapdata/countries/\${iso2}/\${iso2}-all.topo.json\`;
-                            
-                            if (iso3 === 'IND') {
-                                fetchUrl = \`https://raw.githubusercontent.com/AbhinavSwami28/india-official-geojson/main/india-states.topojson\`;
+                    // Fetch cities / districts for this state across any country
+                    const stateName = (polygon.properties.name || '').trim();
+                    let cityFetchUrl = null;
+
+                    const countryIso3 = (polygon.properties && polygon.properties.countryIso3) || activeCountryIso3;
+                    const countryIso2 = (polygon.properties && polygon.properties.countryIso2) || activeCountryIso2;
+
+                    if (countryIso3 === 'IND' || activeCountryId === '356' || activeCountryId === 356) {
+                        if (indiaTopoData && indiaTopoData.objects && indiaTopoData.objects.districts) {
+                            const stateNameClean = stateName.toLowerCase().replace(/[^a-z]/g, '');
+                            const matchingGeometries = indiaTopoData.objects.districts.geometries.filter(g => {
+                                const st = ((g.properties && g.properties.st_nm) || '').toLowerCase().replace(/[^a-z]/g, '');
+                                return st === stateNameClean || st.includes(stateNameClean) || stateNameClean.includes(st);
+                            });
+
+                            if (matchingGeometries.length > 0) {
+                                const districtCollection = topojson.feature(indiaTopoData, {
+                                    type: 'GeometryCollection',
+                                    geometries: matchingGeometries
+                                });
+                                const rewoundGeo = turf.rewind(districtCollection, { reverse: true });
+
+                                cityFeatures = rewoundGeo.features.map(f => {
+                                    const props = f.properties || {};
+                                    const cityName = props.district || props.NAME_2 || props.name || props.shapeName || 'Unknown';
+                                    return {
+                                        ...f,
+                                        id: f.id || props.dt_code || props['hc-key'] || cityName,
+                                        isCity: true,
+                                        isState: false,
+                                        properties: { ...props, name: cityName }
+                                    };
+                                });
+                                globe.polygonsData([...countryFeatures, ...stateFeatures, ...cityFeatures]);
+                                return;
                             }
-                            
+                        }
+                        // Fallback if indiaTopoData not loaded yet
+                        const targetState = mapIndiaState(stateName);
+                        cityFetchUrl = \`https://raw.githubusercontent.com/guneetnarula/indian-district-boundaries/master/topojson/state-wise/\${targetState}.json\`;
+                    } else if (polygon.properties && polygon.properties['hc-key']) {
+                        const hcKey = polygon.properties['hc-key'];
+                        const countryCode = (hcKey.split('-')[0] || countryIso2 || 'us').toLowerCase();
+                        cityFetchUrl = \`https://code.highcharts.com/mapdata/countries/\${countryCode}/\${hcKey}-all.topo.json\`;
+                    }
+
+                    if (cityFetchUrl) {
+                        fetch(cityFetchUrl)
+                            .then(res => res.json())
+                            .then(topoData => {
+                                const objectKey = Object.keys(topoData.objects)[0];
+                                if (objectKey) {
+                                    const geo = topojson.feature(topoData, topoData.objects[objectKey]);
+                                    const rewoundGeo = turf.rewind(geo, { reverse: true });
+
+                                    cityFeatures = rewoundGeo.features.map(f => {
+                                        const props = f.properties || {};
+                                        const cityName = props.district || props.NAME_2 || props.name || props.shapeName || 'Unknown';
+                                        return {
+                                            ...f,
+                                            id: f.id || props.dt_code || props['hc-key'] || cityName,
+                                            isCity: true,
+                                            isState: false,
+                                            properties: { ...props, name: cityName }
+                                        };
+                                    });
+                                    globe.polygonsData([...countryFeatures, ...stateFeatures, ...cityFeatures]);
+                                }
+                            })
+                            .catch(err => console.log('City/District fetch failed for', stateName, err));
+                    }
+                    return;
+                }
+
+                // It's a country
+                globe.controls().autoRotate = false; // Pause rotation on click
+                const currentView = globe.pointOfView();
+                globe.pointOfView({ ...currentView, altitude: Math.max(0.4, currentView.altitude - 1.2) }, 800);
+                
+                if (activeCountryId !== polygon.id) {
+                    activeCountryId = polygon.id;
+                    stateFeatures = []; // clear previous states
+                    cityFeatures = []; // clear previous cities
+                    globe.polygonsData([...countryFeatures]); // reset
+                    activeStateId = null;
+                    activeCityId = null;
+
+                    const iso3 = ISO_NUMERIC_TO_ALPHA3[polygon.id];
+                    const iso2 = ISO_NUMERIC_TO_ALPHA2[polygon.id];
+                    activeCountryIso3 = iso3;
+                    activeCountryIso2 = iso2;
+                    if (iso3 && iso2) {
+                        if (iso3 === 'IND') {
+                            const processIndiaTopo = (topoData) => {
+                                indiaTopoData = topoData;
+                                const geo = topojson.feature(topoData, topoData.objects.states);
+                                const rewoundGeo = turf.rewind(geo, { reverse: true });
+
+                                stateFeatures = rewoundGeo.features.map(f => {
+                                    const props = f.properties || {};
+                                    const stateName = props.st_nm || props.NAME_1 || props.name || props.shapeName || f.id || 'Unknown';
+                                    return {
+                                        ...f,
+                                        id: f.id || props.st_code || stateName,
+                                        isState: true,
+                                        properties: { ...props, name: stateName, countryIso2: activeCountryIso2, countryIso3: activeCountryIso3 }
+                                    };
+                                });
+                                globe.polygonsData([...countryFeatures, ...stateFeatures]);
+                            };
+
+                            if (indiaTopoData) {
+                                processIndiaTopo(indiaTopoData);
+                            } else {
+                                fetch('https://raw.githubusercontent.com/udit-001/india-maps-data/master/topojson/india.json')
+                                    .then(res => res.json())
+                                    .then(processIndiaTopo)
+                                    .catch(err => console.log("TopoJSON fetch failed for IND", err));
+                            }
+                        } else {
+                            let fetchUrl = \`https://code.highcharts.com/mapdata/countries/\${iso2}/\${iso2}-all.topo.json\`;
                             fetch(fetchUrl)
                                 .then(res => res.json())
                                 .then(topoData => {
@@ -251,14 +429,14 @@ export const GLOBE_HTML = `<!DOCTYPE html>
                                     if (objectKey) {
                                         const geo = topojson.feature(topoData, topoData.objects[objectKey]);
                                         const rewoundGeo = turf.rewind(geo, { reverse: true });
-                                        
+
                                         stateFeatures = rewoundGeo.features.map(f => {
                                             const props = f.properties || {};
                                             const stateName = props.NAME_1 || props.name || props.shapeName || f.id || 'Unknown';
-                                            return { 
-                                                ...f, 
-                                                isState: true, 
-                                                properties: { ...props, name: stateName } 
+                                            return {
+                                                ...f,
+                                                isState: true,
+                                                properties: { ...props, name: stateName, countryIso2: activeCountryIso2, countryIso3: activeCountryIso3 }
                                             };
                                         });
                                         globe.polygonsData([...countryFeatures, ...stateFeatures]);
@@ -266,21 +444,22 @@ export const GLOBE_HTML = `<!DOCTYPE html>
                                 }).catch(err => console.log("TopoJSON fetch failed for", iso3));
                         }
                     }
+                }
 
-                    if (window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'country-clicked',
-                            country: polygon.properties.name,
-                            id: polygon.id
-                        }));
-                    }
-                });
-                polygonsReady = true;
-                if (window._pendingMarkers) {
-                    window.addMarkers(window._pendingMarkers);
-                    window._pendingMarkers = null;
+                if (window.ReactNativeWebView) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'country-clicked',
+                        country: polygon.properties.name,
+                        id: polygon.id
+                    }));
                 }
             });
+            polygonsReady = true;
+            if (window._pendingMarkers) {
+                window.addMarkers(window._pendingMarkers);
+                window._pendingMarkers = null;
+            }
+        });
 
         window.addMarkers = markers => {
             if (!polygonsReady) {

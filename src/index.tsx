@@ -20,63 +20,76 @@ export interface OrbitlyGlobeRef {
   reset: () => void;
 }
 
-export const OrbitlyGlobe = forwardRef<OrbitlyGlobeRef, OrbitlyGlobeProps>(({
-  onCountryClick,
-  onStateClick,
-  onCityClick,
-  onGlobeReady,
-  backgroundColor = '#070810',
-  style,
-}, ref) => {
-  const webviewRef = useRef<WebView>(null);
-
-  useImperativeHandle(ref, () => ({
-    zoomIn: () => {
-      webviewRef.current?.injectJavaScript(`if(window.globe) window.globe.pointOfView({ altitude: Math.max(0.1, window.globe.pointOfView().altitude - 0.2) }, 500); true;`);
+export const OrbitlyGlobe = forwardRef<OrbitlyGlobeRef, OrbitlyGlobeProps>(
+  (
+    {
+      onCountryClick,
+      onStateClick,
+      onCityClick,
+      onGlobeReady,
+      backgroundColor = '#070810',
+      style,
     },
-    zoomOut: () => {
-      webviewRef.current?.injectJavaScript(`if(window.globe) window.globe.pointOfView({ altitude: Math.min(4, window.globe.pointOfView().altitude + 0.2) }, 500); true;`);
-    },
-    reset: () => {
-      webviewRef.current?.injectJavaScript(`if(window.resetGlobeToInitialState) window.resetGlobeToInitialState(); true;`);
-    }
-  }));
+    ref
+  ) => {
+    const webviewRef = useRef<WebView>(null);
 
-  const handleWebViewMessage = (event: WebViewMessageEvent) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'country-clicked' && onCountryClick) {
-        onCountryClick(data.country);
-      } else if (data.type === 'state-clicked' && onStateClick) {
-        onStateClick(data.state);
-      } else if (data.type === 'district-clicked' && onCityClick) {
-        onCityClick(data.district);
-      }
-    } catch (e) {
-      if (event.nativeEvent.data === 'globe-ready' && onGlobeReady) {
-        onGlobeReady();
-      }
-    }
-  };
+    useImperativeHandle(ref, () => ({
+      zoomIn: () => {
+        webviewRef.current?.injectJavaScript(
+          `if(window.globe) window.globe.pointOfView({ altitude: Math.max(0.1, window.globe.pointOfView().altitude - 0.2) }, 500); true;`
+        );
+      },
+      zoomOut: () => {
+        webviewRef.current?.injectJavaScript(
+          `if(window.globe) window.globe.pointOfView({ altitude: Math.min(4, window.globe.pointOfView().altitude + 0.2) }, 500); true;`
+        );
+      },
+      reset: () => {
+        webviewRef.current?.injectJavaScript(
+          `if(window.resetGlobeToInitialState) window.resetGlobeToInitialState(); true;`
+        );
+      },
+    }));
 
-  return (
-    <View style={[styles.container, { backgroundColor }, style]}>
-      {/* @ts-ignore */}
-      <WebView
-        ref={webviewRef}
-        originWhitelist={['*']}
-        source={{ html: GLOBE_HTML }}
-        javaScriptEnabled
-        domStorageEnabled
-        allowsInlineMediaPlayback={true}
-        allowsBackForwardNavigationGestures={false}
-        onMessage={handleWebViewMessage}
-        onError={(e: any) => console.log('OrbitlyGlobe WebView error:', e.nativeEvent)}
-        style={styles.webview}
-      />
-    </View>
-  );
-});
+    const handleWebViewMessage = (event: WebViewMessageEvent) => {
+      try {
+        const data = JSON.parse(event.nativeEvent.data);
+        if (data.type === 'country-clicked' && onCountryClick) {
+          onCountryClick(data.country);
+        } else if (data.type === 'state-clicked' && onStateClick) {
+          onStateClick(data.state);
+        } else if (data.type === 'district-clicked' && onCityClick) {
+          onCityClick(data.district);
+        }
+      } catch {
+        if (event.nativeEvent.data === 'globe-ready' && onGlobeReady) {
+          onGlobeReady();
+        }
+      }
+    };
+
+    return (
+      <View style={[styles.container, { backgroundColor }, style]}>
+        {/* @ts-ignore */}
+        <WebView
+          ref={webviewRef}
+          originWhitelist={['*']}
+          source={{ html: GLOBE_HTML }}
+          javaScriptEnabled
+          domStorageEnabled
+          allowsInlineMediaPlayback={true}
+          allowsBackForwardNavigationGestures={false}
+          onMessage={handleWebViewMessage}
+          onError={(e: any) =>
+            console.log('OrbitlyGlobe WebView error:', e.nativeEvent)
+          }
+          style={styles.webview}
+        />
+      </View>
+    );
+  }
+);
 
 const styles = StyleSheet.create({
   container: {
